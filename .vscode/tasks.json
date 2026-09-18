@@ -8,7 +8,7 @@
             "args": [
                 "${file}",
                 "-o",
-                "${fileDirname}/jogo.exe",
+                "${workspaceFolder}/jogo.exe",
                 "-m64",
                 "-O1",
                 "-Wall",

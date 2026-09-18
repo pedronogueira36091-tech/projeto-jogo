@@ -1,4 +1,4 @@
-#include "raylib.h"
+#include <raylib.h>
 
 int main(void)
 {
@@ -11,7 +11,7 @@ int main(void)
         ClearBackground(RAYWHITE);
 
         DrawText(
-            "Raylib funcionando!",
+            "Raylib Nao funciona",
             250,
             200,
             30,
