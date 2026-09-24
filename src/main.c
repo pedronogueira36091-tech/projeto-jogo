@@ -7,6 +7,7 @@
 #define MAP_ROWS 13
 #define MAP_COLS 15
 #define MAX_BOMBS 5
+#define PLAYER_SIZE (TILE_SIZE - 10) // Tamanho do jogador para o cálculo de colisão
 
 // 1. ENUMERAÇÕES
 typedef enum GameState {
@@ -28,56 +29,123 @@ typedef struct Position {
 } Position;
 
 typedef struct Bomb {
-    Position pos;          // Aninhamento de estrutura
+    Position pos;          
     float timer;
     int range;
     bool active;
+    
+    // --- NOVO: Controles da Explosão ---
+    bool exploding;
+    float explosionTimer;
+    int expUp, expDown, expLeft, expRight; // Salva o alcance real da explosão em cada lado
 } Bomb;
 
 typedef struct Player {
-    Position pos;          // Aninhamento de estrutura
+    Position pos;          
     float speed;
     int maxBombs;
-    char name[32];         // Vetor de char para Strings
-    Bomb bombs[MAX_BOMBS]; // Vetor de estruturas
+    char name[32];         
+    Bomb bombs[MAX_BOMBS]; 
 } Player;
 
 typedef struct GameMap {
-    TileType** grid;       // Ponteiro para matriz dinâmica (Ponteiro de Ponteiro)
+    TileType** grid;       
     int rows;
     int cols;
 } GameMap;
 
-// 3. FUNÇÕES E ALOCAÇÃO DINÂMICA
 
-// Criação do mapa dinâmico (Matriz + Alocação Dinâmica)
+// --- FUNÇÕES NOVAS DE LÓGICA E EFEITOS ---
+
+// Checa colisão preditiva, retorna "true" se bater na parede ou em um bloco
+bool CheckCollision(GameMap* map, float newX, float newY) {
+    // Calcula as bordas do jogador subtraindo um valor mínimo (0.01f) para não travar nas quinas
+    int leftTile   = (int)(newX) / TILE_SIZE;
+    int rightTile  = (int)(newX + PLAYER_SIZE - 0.01f) / TILE_SIZE;
+    int topTile    = (int)(newY) / TILE_SIZE;
+    int bottomTile = (int)(newY + PLAYER_SIZE - 0.01f) / TILE_SIZE;
+
+    // Proteção contra bordas do mapa
+    if (leftTile < 0 || rightTile >= map->cols || topTile < 0 || bottomTile >= map->rows) return true;
+
+    // Checa as 4 pontas do retângulo do jogador
+    if (map->grid[topTile][leftTile] != TILE_EMPTY) return true;
+    if (map->grid[topTile][rightTile] != TILE_EMPTY) return true;
+    if (map->grid[bottomTile][leftTile] != TILE_EMPTY) return true;
+    if (map->grid[bottomTile][rightTile] != TILE_EMPTY) return true;
+
+    return false;
+}
+
+// Lida com a destruição do mapa no raio da explosão
+void ProcessExplosion(GameMap* map, Bomb* b) {
+    int cx = (int)(b->pos.x) / TILE_SIZE;
+    int cy = (int)(b->pos.y) / TILE_SIZE;
+
+    b->expRight = 0; b->expLeft = 0; b->expDown = 0; b->expUp = 0;
+
+    // Direita
+    for (int r = 1; r <= b->range; r++) {
+        int nx = cx + r;
+        if (nx >= map->cols || map->grid[cy][nx] == TILE_WALL) break;
+        b->expRight++;
+        if (map->grid[cy][nx] == TILE_BLOCK) { map->grid[cy][nx] = TILE_EMPTY; break; }
+    }
+    // Esquerda
+    for (int r = 1; r <= b->range; r++) {
+        int nx = cx - r;
+        if (nx < 0 || map->grid[cy][nx] == TILE_WALL) break;
+        b->expLeft++;
+        if (map->grid[cy][nx] == TILE_BLOCK) { map->grid[cy][nx] = TILE_EMPTY; break; }
+    }
+    // Baixo
+    for (int r = 1; r <= b->range; r++) {
+        int ny = cy + r;
+        if (ny >= map->rows || map->grid[ny][cx] == TILE_WALL) break;
+        b->expDown++;
+        if (map->grid[ny][cx] == TILE_BLOCK) { map->grid[ny][cx] = TILE_EMPTY; break; }
+    }
+    // Cima
+    for (int r = 1; r <= b->range; r++) {
+        int ny = cy - r;
+        if (ny < 0 || map->grid[ny][cx] == TILE_WALL) break;
+        b->expUp++;
+        if (map->grid[ny][cx] == TILE_BLOCK) { map->grid[ny][cx] = TILE_EMPTY; break; }
+    }
+}
+
+// Desenha o ladrilho estilizado da explosão
+void DrawExplosionTile(int gridX, int gridY) {
+    DrawRectangle(gridX * TILE_SIZE, gridY * TILE_SIZE, TILE_SIZE, TILE_SIZE, ORANGE);
+    DrawRectangle(gridX * TILE_SIZE + 5, gridY * TILE_SIZE + 5, TILE_SIZE - 10, TILE_SIZE - 10, YELLOW);
+}
+
+
+// --- FUNÇÕES E ALOCAÇÃO DINÂMICA ---
+
 GameMap* CreateMap(int rows, int cols) {
-    GameMap* map = (GameMap*) malloc(sizeof(GameMap)); // Alocação dinâmica de estrutura
+    GameMap* map = (GameMap*) malloc(sizeof(GameMap));
     map->rows = rows;
     map->cols = cols;
-
-    // Alocação da matriz dinâmica de TileType
     map->grid = (TileType**) malloc(rows * sizeof(TileType*));
     for (int i = 0; i < rows; i++) {
         map->grid[i] = (TileType*) malloc(cols * sizeof(TileType));
     }
 
-    // Preenchimento do labirinto
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
             if (r == 0 || r == rows - 1 || c == 0 || c == cols - 1 || (r % 2 == 0 && c % 2 == 0)) {
-                map->grid[r][c] = TILE_WALL;  // Paredes indestrutíveis
+                map->grid[r][c] = TILE_WALL;
             } else if ((r > 2 || c > 2) && (GetRandomValue(0, 10) > 4)) {
-                map->grid[r][c] = TILE_BLOCK; // Blocos destrutíveis
+                map->grid[r][c] = TILE_BLOCK;
             } else {
-                map->grid[r][c] = TILE_EMPTY; // Espaço livre
+                map->grid[r][c] = TILE_EMPTY;
             }
         }
     }
     return map;
 }
 
-// Criação do Jogador (Ponteiros de Estruturas + Alocação Dinâmica + Strings)
 Player* CreatePlayer(const char* inputName, float startX, float startY) {
     Player* p = (Player*) malloc(sizeof(Player));
     p->pos.x = startX;
@@ -85,52 +153,44 @@ Player* CreatePlayer(const char* inputName, float startX, float startY) {
     p->speed = 3.0f;
     p->maxBombs = 2;
 
-    // Manipulação de Strings (strcpy, strcmp, strlen)
-    if (strcmp(inputName, "") == 0) {
-        strcpy(p->name, "Jogador 1");
-    } else {
-        strcpy(p->name, inputName);
-    }
+    if (strcmp(inputName, "") == 0) strcpy(p->name, "Jogador 1");
+    else strcpy(p->name, inputName);
 
-    // Inicialização do vetor de estruturas das bombas
     for (int i = 0; i < MAX_BOMBS; i++) {
         p->bombs[i].active = false;
-        p->bombs[i].range = 1;
+        p->bombs[i].exploding = false; // Inicializando o estado
+        p->bombs[i].range = 2;         // Alcance da bomba
     }
-
     return p;
 }
 
-// Função para plantio de bombas (Uso de Ponteiros)
 void PlantBomb(Player* p) {
     for (int i = 0; i < p->maxBombs; i++) {
         if (!p->bombs[i].active) {
-            // Alinha a bomba no centro da célula da grade
             int gridX = (int)(p->pos.x + TILE_SIZE / 2) / TILE_SIZE;
             int gridY = (int)(p->pos.y + TILE_SIZE / 2) / TILE_SIZE;
 
             p->bombs[i].pos.x = gridX * TILE_SIZE;
             p->bombs[i].pos.y = gridY * TILE_SIZE;
-            p->bombs[i].timer = 2.0f; // 2 segundos para explodir
+            p->bombs[i].timer = 2.0f; 
             p->bombs[i].active = true;
+            p->bombs[i].exploding = false;
             break;
         }
     }
 }
 
-// Liberação de Memória Dinâmica
 void FreeMap(GameMap* map) {
-    for (int i = 0; i < map->rows; i++) {
-        free(map->grid[i]); // Libera cada linha da matriz
-    }
-    free(map->grid);        // Libera os ponteiros das linhas
-    free(map);              // Libera a estrutura do mapa
+    for (int i = 0; i < map->rows; i++) free(map->grid[i]);
+    free(map->grid);
+    free(map);
 }
+
 
 // --- FUNÇÃO PRINCIPAL ---
 int main(void) {
     const int screenWidth = MAP_COLS * TILE_SIZE;
-    const int screenHeight = MAP_ROWS * TILE_SIZE + 40; // Espaço extra para o HUD
+    const int screenHeight = MAP_ROWS * TILE_SIZE + 40; 
 
     InitWindow(screenWidth, screenHeight, "Detonatrix - 2D Engine");
     SetTargetFPS(60);
@@ -144,11 +204,18 @@ int main(void) {
 
         // --- LÓGICA DE ATUALIZAÇÃO ---
         if (state == STATE_PLAYING) {
-            // Movimentação do Jogador
-            if (IsKeyDown(KEY_RIGHT)) player->pos.x += player->speed;
-            if (IsKeyDown(KEY_LEFT))  player->pos.x -= player->speed;
-            if (IsKeyDown(KEY_DOWN))  player->pos.y += player->speed;
-            if (IsKeyDown(KEY_UP))    player->pos.y -= player->speed;
+            
+            // --- NOVO: Movimentação com Colisão (Eixos separados para deslizar na parede) ---
+            float nextX = player->pos.x;
+            float nextY = player->pos.y;
+            
+            if (IsKeyDown(KEY_RIGHT)) nextX += player->speed;
+            if (IsKeyDown(KEY_LEFT))  nextX -= player->speed;
+            if (!CheckCollision(map, nextX, player->pos.y)) player->pos.x = nextX; // Só move em X se não colidir
+
+            if (IsKeyDown(KEY_DOWN))  nextY += player->speed;
+            if (IsKeyDown(KEY_UP))    nextY -= player->speed;
+            if (!CheckCollision(map, player->pos.x, nextY)) player->pos.y = nextY; // Só move em Y se não colidir
 
             // Plantar Bomba
             if (IsKeyPressed(KEY_SPACE)) {
@@ -158,9 +225,21 @@ int main(void) {
             // Atualizar Temporizador das Bombas
             for (int i = 0; i < player->maxBombs; i++) {
                 if (player->bombs[i].active) {
-                    player->bombs[i].timer -= deltaTime;
-                    if (player->bombs[i].timer <= 0) {
-                        player->bombs[i].active = false; // Simulação de explosão
+                    if (!player->bombs[i].exploding) {
+                        player->bombs[i].timer -= deltaTime;
+                        // Aciona a explosão
+                        if (player->bombs[i].timer <= 0) {
+                            player->bombs[i].exploding = true;
+                            player->bombs[i].explosionTimer = 0.4f; // Tempo que o efeito fica na tela
+                            ProcessExplosion(map, &player->bombs[i]); // Processa blocos destruídos
+                        }
+                    } else {
+                        // Contador para sumir o efeito visual do fogo
+                        player->bombs[i].explosionTimer -= deltaTime;
+                        if (player->bombs[i].explosionTimer <= 0) {
+                            player->bombs[i].active = false;
+                            player->bombs[i].exploding = false;
+                        }
                     }
                 }
             }
@@ -171,39 +250,51 @@ int main(void) {
             ClearBackground(RAYWHITE);
 
             if (state == STATE_PLAYING) {
-                // Desenhar o Mapa (Matriz 2D)
+                // Desenhar o Mapa
                 for (int r = 0; r < map->rows; r++) {
                     for (int c = 0; c < map->cols; c++) {
                         if (map->grid[r][c] == TILE_WALL) {
                             DrawRectangle(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE - 2, TILE_SIZE - 2, DARKGRAY);
                         } else if (map->grid[r][c] == TILE_BLOCK) {
-                            DrawRectangle(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE - 2, TILE_SIZE - 2, BROWN);
+                            DrawRectangle(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE - 2, TILE_SIZE - 2, DARKBROWN);
                         } else {
                             DrawRectangle(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE - 2, TILE_SIZE - 2, LIGHTGRAY);
                         }
                     }
                 }
 
-                // Desenhar Bombas
+                // Desenhar Bombas e Explosões
                 for (int i = 0; i < player->maxBombs; i++) {
                     if (player->bombs[i].active) {
-                        DrawCircle(player->bombs[i].pos.x + TILE_SIZE / 2, player->bombs[i].pos.y + TILE_SIZE / 2, TILE_SIZE / 3, RED);
+                        if (!player->bombs[i].exploding) {
+                            // Bomba não detonada ainda
+                            DrawCircle(player->bombs[i].pos.x + TILE_SIZE / 2, player->bombs[i].pos.y + TILE_SIZE / 2, TILE_SIZE / 3, BLACK);
+                        } else {
+                            // --- NOVO: Desenhar Efeito de Explosão ---
+                            int bx = player->bombs[i].pos.x / TILE_SIZE;
+                            int by = player->bombs[i].pos.y / TILE_SIZE;
+                            
+                            DrawExplosionTile(bx, by); // Centro
+                            for (int r = 1; r <= player->bombs[i].expRight; r++) DrawExplosionTile(bx + r, by);
+                            for (int r = 1; r <= player->bombs[i].expLeft; r++)  DrawExplosionTile(bx - r, by);
+                            for (int r = 1; r <= player->bombs[i].expDown; r++)  DrawExplosionTile(bx, by + r);
+                            for (int r = 1; r <= player->bombs[i].expUp; r++)    DrawExplosionTile(bx, by - r);
+                        }
                     }
                 }
 
                 // Desenhar Jogador
-                DrawRectangle(player->pos.x, player->pos.y, TILE_SIZE - 10, TILE_SIZE - 10, BLUE);
+                DrawRectangle(player->pos.x, player->pos.y, PLAYER_SIZE, PLAYER_SIZE, BLUE);
 
-                // HUD / Interface com Manipulação de Strings
+                // HUD
                 char hudText[64];
-                snprintf(hudText, sizeof(hudText), "Jogador: %s | Bombas Ativas: ", player->name);
+                snprintf(hudText, sizeof(hudText), "Jogador: %s", player->name);
                 DrawRectangle(0, MAP_ROWS * TILE_SIZE, screenWidth, 40, BLACK);
                 DrawText(hudText, 10, MAP_ROWS * TILE_SIZE + 10, 16, WHITE);
             }
         EndDrawing();
     }
 
-    // DESALOCAÇÃO DE MEMÓRIA (Obrigatório)
     free(player);
     FreeMap(map);
     CloseWindow();
