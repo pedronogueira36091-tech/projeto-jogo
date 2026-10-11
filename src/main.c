@@ -3,300 +3,279 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define TILE_SIZE 40
-#define MAP_ROWS 13
-#define MAP_COLS 15
-#define MAX_BOMBS 5
-#define PLAYER_SIZE (TILE_SIZE - 10) // Tamanho do jogador para o cálculo de colisão
+#define TAMANHO_BLOCO 40
+#define LINHAS_MAPA 13
+#define COLUNAS_MAPA 15
+#define MAX_BOMBAS 5
+#define TAMANHO_JOGADOR (TAMANHO_BLOCO - 10)
 
-// 1. ENUMERAÇÕES
-typedef enum GameState {
-    STATE_MENU,
-    STATE_PLAYING,
-    STATE_GAMEOVER
-} GameState;
+bool pausado = false;
 
-typedef enum TileType {
-    TILE_EMPTY,
-    TILE_WALL,
-    TILE_BLOCK
-} TileType;
+typedef enum EstadoJogo {
+    ESTADO_MENU,
+    ESTADO_JOGANDO,
+    ESTADO_FIM_DE_JOGO
+} EstadoJogo;
 
-// 2. ESTRUTURAS
-typedef struct Position {
+typedef enum TipoBloco {
+    BLOCO_VAZIO,
+    BLOCO_PAREDE,
+    BLOCO_DESTRUTIVEL
+} TipoBloco;
+
+typedef struct Posicao {
     float x;
     float y;
-} Position;
+} Posicao;
 
-typedef struct Bomb {
-    Position pos;          
-    float timer;
-    int range;
-    bool active;
-    
-    // --- NOVO: Controles da Explosão ---
-    bool exploding;
-    float explosionTimer;
-    int expUp, expDown, expLeft, expRight; // Salva o alcance real da explosão em cada lado
-} Bomb;
+typedef struct Bomba {
+    Posicao pos;
+    float temporizador;
+    int alcance;
+    bool ativa;
+    bool explodindo;
+    float tempoExplosao;
+    int expCima, expBaixo, expEsquerda, expDireita;
+} Bomba;
 
-typedef struct Player {
-    Position pos;          
-    float speed;
-    int maxBombs;
-    char name[32];         
-    Bomb bombs[MAX_BOMBS]; 
-} Player;
+typedef struct Jogador {
+    Posicao pos;
+    float velocidade;
+    int maxBombas;
+    char nome[32];
+    Bomba bombas[MAX_BOMBAS];
+} Jogador;
 
-typedef struct GameMap {
-    TileType** grid;       
-    int rows;
-    int cols;
-} GameMap;
+typedef struct MapaJogo {
+    TipoBloco** matriz;
+    int linhas;
+    int colunas;
+} MapaJogo;
 
+bool ChecarColisao(MapaJogo* mapa, float novoX, float novoY) {
+    int blocoEsquerda = (int)(novoX) / TAMANHO_BLOCO;
+    int blocoDireita  = (int)(novoX + TAMANHO_JOGADOR - 0.01f) / TAMANHO_BLOCO;
+    int blocoTopo     = (int)(novoY) / TAMANHO_BLOCO;
+    int blocoBase     = (int)(novoY + TAMANHO_JOGADOR - 0.01f) / TAMANHO_BLOCO;
 
-// --- FUNÇÕES NOVAS DE LÓGICA E EFEITOS ---
+    if (blocoEsquerda < 0 || blocoDireita >= mapa->colunas || blocoTopo < 0 || blocoBase >= mapa->linhas) return true;
 
-// Checa colisão preditiva, retorna "true" se bater na parede ou em um bloco
-bool CheckCollision(GameMap* map, float newX, float newY) {
-    // Calcula as bordas do jogador subtraindo um valor mínimo (0.01f) para não travar nas quinas
-    int leftTile   = (int)(newX) / TILE_SIZE;
-    int rightTile  = (int)(newX + PLAYER_SIZE - 0.01f) / TILE_SIZE;
-    int topTile    = (int)(newY) / TILE_SIZE;
-    int bottomTile = (int)(newY + PLAYER_SIZE - 0.01f) / TILE_SIZE;
-
-    // Proteção contra bordas do mapa
-    if (leftTile < 0 || rightTile >= map->cols || topTile < 0 || bottomTile >= map->rows) return true;
-
-    // Checa as 4 pontas do retângulo do jogador
-    if (map->grid[topTile][leftTile] != TILE_EMPTY) return true;
-    if (map->grid[topTile][rightTile] != TILE_EMPTY) return true;
-    if (map->grid[bottomTile][leftTile] != TILE_EMPTY) return true;
-    if (map->grid[bottomTile][rightTile] != TILE_EMPTY) return true;
+    if (mapa->matriz[blocoTopo][blocoEsquerda] != BLOCO_VAZIO) return true;
+    if (mapa->matriz[blocoTopo][blocoDireita] != BLOCO_VAZIO) return true;
+    if (mapa->matriz[blocoBase][blocoEsquerda] != BLOCO_VAZIO) return true;
+    if (mapa->matriz[blocoBase][blocoDireita] != BLOCO_VAZIO) return true;
 
     return false;
 }
 
-// Lida com a destruição do mapa no raio da explosão
-void ProcessExplosion(GameMap* map, Bomb* b) {
-    int cx = (int)(b->pos.x) / TILE_SIZE;
-    int cy = (int)(b->pos.y) / TILE_SIZE;
+void ProcessarExplosao(MapaJogo* mapa, Bomba* b) {
+    int cx = (int)(b->pos.x) / TAMANHO_BLOCO;
+    int cy = (int)(b->pos.y) / TAMANHO_BLOCO;
 
-    b->expRight = 0; b->expLeft = 0; b->expDown = 0; b->expUp = 0;
+    b->expDireita = 0; b->expEsquerda = 0; b->expBaixo = 0; b->expCima = 0;
 
-    // Direita
-    for (int r = 1; r <= b->range; r++) {
+    for (int r = 1; r <= b->alcance; r++) {
         int nx = cx + r;
-        if (nx >= map->cols || map->grid[cy][nx] == TILE_WALL) break;
-        b->expRight++;
-        if (map->grid[cy][nx] == TILE_BLOCK) { map->grid[cy][nx] = TILE_EMPTY; break; }
+        if (nx >= mapa->colunas || mapa->matriz[cy][nx] == BLOCO_PAREDE) break;
+        b->expDireita++;
+        if (mapa->matriz[cy][nx] == BLOCO_DESTRUTIVEL) { mapa->matriz[cy][nx] = BLOCO_VAZIO; break; }
     }
-    // Esquerda
-    for (int r = 1; r <= b->range; r++) {
+    for (int r = 1; r <= b->alcance; r++) {
         int nx = cx - r;
-        if (nx < 0 || map->grid[cy][nx] == TILE_WALL) break;
-        b->expLeft++;
-        if (map->grid[cy][nx] == TILE_BLOCK) { map->grid[cy][nx] = TILE_EMPTY; break; }
+        if (nx < 0 || mapa->matriz[cy][nx] == BLOCO_PAREDE) break;
+        b->expEsquerda++;
+        if (mapa->matriz[cy][nx] == BLOCO_DESTRUTIVEL) { mapa->matriz[cy][nx] = BLOCO_VAZIO; break; }
     }
-    // Baixo
-    for (int r = 1; r <= b->range; r++) {
+    for (int r = 1; r <= b->alcance; r++) {
         int ny = cy + r;
-        if (ny >= map->rows || map->grid[ny][cx] == TILE_WALL) break;
-        b->expDown++;
-        if (map->grid[ny][cx] == TILE_BLOCK) { map->grid[ny][cx] = TILE_EMPTY; break; }
+        if (ny >= mapa->linhas || mapa->matriz[ny][cx] == BLOCO_PAREDE) break;
+        b->expBaixo++;
+        if (mapa->matriz[ny][cx] == BLOCO_DESTRUTIVEL) { mapa->matriz[ny][cx] = BLOCO_VAZIO; break; }
     }
-    // Cima
-    for (int r = 1; r <= b->range; r++) {
+    for (int r = 1; r <= b->alcance; r++) {
         int ny = cy - r;
-        if (ny < 0 || map->grid[ny][cx] == TILE_WALL) break;
-        b->expUp++;
-        if (map->grid[ny][cx] == TILE_BLOCK) { map->grid[ny][cx] = TILE_EMPTY; break; }
+        if (ny < 0 || mapa->matriz[ny][cx] == BLOCO_PAREDE) break;
+        b->expCima++;
+        if (mapa->matriz[ny][cx] == BLOCO_DESTRUTIVEL) { mapa->matriz[ny][cx] = BLOCO_VAZIO; break; }
     }
 }
 
-// Desenha o ladrilho estilizado da explosão
-void DrawExplosionTile(int gridX, int gridY) {
-    DrawRectangle(gridX * TILE_SIZE, gridY * TILE_SIZE, TILE_SIZE, TILE_SIZE, ORANGE);
-    DrawRectangle(gridX * TILE_SIZE + 5, gridY * TILE_SIZE + 5, TILE_SIZE - 10, TILE_SIZE - 10, YELLOW);
+void DesenharBlocoExplosao(int gridX, int gridY) {
+    DrawRectangle(gridX * TAMANHO_BLOCO, gridY * TAMANHO_BLOCO, TAMANHO_BLOCO, TAMANHO_BLOCO, ORANGE);
+    DrawRectangle(gridX * TAMANHO_BLOCO + 5, gridY * TAMANHO_BLOCO + 5, TAMANHO_BLOCO - 10, TAMANHO_BLOCO - 10, YELLOW);
 }
 
-
-// --- FUNÇÕES E ALOCAÇÃO DINÂMICA ---
-
-GameMap* CreateMap(int rows, int cols) {
-    GameMap* map = (GameMap*) malloc(sizeof(GameMap));
-    map->rows = rows;
-    map->cols = cols;
-    map->grid = (TileType**) malloc(rows * sizeof(TileType*));
-    for (int i = 0; i < rows; i++) {
-        map->grid[i] = (TileType*) malloc(cols * sizeof(TileType));
+MapaJogo* CriarMapa(int linhas, int colunas) {
+    MapaJogo* mapa = (MapaJogo*) malloc(sizeof(MapaJogo));
+    mapa->linhas = linhas;
+    mapa->colunas = colunas;
+    mapa->matriz = (TipoBloco**) malloc(linhas * sizeof(TipoBloco*));
+    for (int i = 0; i < linhas; i++) {
+        mapa->matriz[i] = (TipoBloco*) malloc(colunas * sizeof(TipoBloco));
     }
 
-    for (int r = 0; r < rows; r++) {
-        for (int c = 0; c < cols; c++) {
-            if (r == 0 || r == rows - 1 || c == 0 || c == cols - 1 || (r % 2 == 0 && c % 2 == 0)) {
-                map->grid[r][c] = TILE_WALL;
+    for (int r = 0; r < linhas; r++) {
+        for (int c = 0; c < colunas; c++) {
+            if (r == 0 || r == linhas - 1 || c == 0 || c == colunas - 1 || (r % 2 == 0 && c % 2 == 0)) {
+                mapa->matriz[r][c] = BLOCO_PAREDE;
             } else if ((r > 2 || c > 2) && (GetRandomValue(0, 10) > 4)) {
-                map->grid[r][c] = TILE_BLOCK;
+                mapa->matriz[r][c] = BLOCO_DESTRUTIVEL;
             } else {
-                map->grid[r][c] = TILE_EMPTY;
+                mapa->matriz[r][c] = BLOCO_VAZIO;
             }
         }
     }
-    return map;
+    return mapa;
 }
 
-Player* CreatePlayer(const char* inputName, float startX, float startY) {
-    Player* p = (Player*) malloc(sizeof(Player));
-    p->pos.x = startX;
-    p->pos.y = startY;
-    p->speed = 3.0f;
-    p->maxBombs = 2;
+Jogador* CriarJogador(const char* nomeEntrada, float startX, float startY) {
+    Jogador* j = (Jogador*) malloc(sizeof(Jogador));
+    j->pos.x = startX;
+    j->pos.y = startY;
+    j->velocidade = 3.0f;
+    j->maxBombas = 2;
 
-    if (strcmp(inputName, "") == 0) strcpy(p->name, "Jogador 1");
-    else strcpy(p->name, inputName);
+    if (strcmp(nomeEntrada, "") == 0) strcpy(j->nome, "Jogador 1");
+    else strcpy(j->nome, nomeEntrada);
 
-    for (int i = 0; i < MAX_BOMBS; i++) {
-        p->bombs[i].active = false;
-        p->bombs[i].exploding = false; // Inicializando o estado
-        p->bombs[i].range = 2;         // Alcance da bomba
+    for (int i = 0; i < MAX_BOMBAS; i++) {
+        j->bombas[i].ativa = false;
+        j->bombas[i].explodindo = false;
+        j->bombas[i].alcance = 2;
     }
-    return p;
+    return j;
 }
 
-void PlantBomb(Player* p) {
-    for (int i = 0; i < p->maxBombs; i++) {
-        if (!p->bombs[i].active) {
-            int gridX = (int)(p->pos.x + TILE_SIZE / 2) / TILE_SIZE;
-            int gridY = (int)(p->pos.y + TILE_SIZE / 2) / TILE_SIZE;
+void PlantarBomba(Jogador* j) {
+    for (int i = 0; i < j->maxBombas; i++) {
+        if (!j->bombas[i].ativa) {
+            int gridX = (int)(j->pos.x + TAMANHO_BLOCO / 2) / TAMANHO_BLOCO;
+            int gridY = (int)(j->pos.y + TAMANHO_BLOCO / 2) / TAMANHO_BLOCO;
 
-            p->bombs[i].pos.x = gridX * TILE_SIZE;
-            p->bombs[i].pos.y = gridY * TILE_SIZE;
-            p->bombs[i].timer = 2.0f; 
-            p->bombs[i].active = true;
-            p->bombs[i].exploding = false;
+            j->bombas[i].pos.x = gridX * TAMANHO_BLOCO;
+            j->bombas[i].pos.y = gridY * TAMANHO_BLOCO;
+            j->bombas[i].temporizador = 2.0f;
+            j->bombas[i].ativa = true;
+            j->bombas[i].explodindo = false;
             break;
         }
     }
 }
 
-void FreeMap(GameMap* map) {
-    for (int i = 0; i < map->rows; i++) free(map->grid[i]);
-    free(map->grid);
-    free(map);
+void LiberarMapa(MapaJogo* mapa) {
+    for (int i = 0; i < mapa->linhas; i++) free(mapa->matriz[i]);
+    free(mapa->matriz);
+    free(mapa);
 }
 
-
-// --- FUNÇÃO PRINCIPAL ---
 int main(void) {
-    const int screenWidth = MAP_COLS * TILE_SIZE;
-    const int screenHeight = MAP_ROWS * TILE_SIZE + 40; 
+    const int larguraTela = COLUNAS_MAPA * TAMANHO_BLOCO;
+    const int alturaTela = LINHAS_MAPA * TAMANHO_BLOCO + 40;
 
-    InitWindow(screenWidth, screenHeight, "Detonatrix - 2D Engine");
+    InitWindow(larguraTela, alturaTela, "Detonatrix - Engine 2D");
     SetTargetFPS(60);
 
-    GameState state = STATE_PLAYING;
-    GameMap* map = CreateMap(MAP_ROWS, MAP_COLS);
-    Player* player = CreatePlayer("Detonador", TILE_SIZE + 5, TILE_SIZE + 5);
+    EstadoJogo estado = ESTADO_JOGANDO;
+    MapaJogo* mapa = CriarMapa(LINHAS_MAPA, COLUNAS_MAPA);
+    Jogador* jogador = CriarJogador("Detonador", TAMANHO_BLOCO + 5, TAMANHO_BLOCO + 5);
 
     while (!WindowShouldClose()) {
         float deltaTime = GetFrameTime();
 
-        // --- LÓGICA DE ATUALIZAÇÃO ---
-        if (state == STATE_PLAYING) {
-            
-            // --- NOVO: Movimentação com Colisão (Eixos separados para deslizar na parede) ---
-            float nextX = player->pos.x;
-            float nextY = player->pos.y;
-            
-            if (IsKeyDown(KEY_RIGHT)) nextX += player->speed;
-            if (IsKeyDown(KEY_LEFT))  nextX -= player->speed;
-            if (!CheckCollision(map, nextX, player->pos.y)) player->pos.x = nextX; // Só move em X se não colidir
+        if (IsKeyPressed(KEY_Q)) {
+            pausado = !pausado;
+        }
 
-            if (IsKeyDown(KEY_DOWN))  nextY += player->speed;
-            if (IsKeyDown(KEY_UP))    nextY -= player->speed;
-            if (!CheckCollision(map, player->pos.x, nextY)) player->pos.y = nextY; // Só move em Y se não colidir
+        if (!pausado) {
+            if (estado == ESTADO_JOGANDO) {
+                float proximoX = jogador->pos.x;
+                float proximoY = jogador->pos.y;
 
-            // Plantar Bomba
-            if (IsKeyPressed(KEY_SPACE)) {
-                PlantBomb(player);
-            }
+                if (IsKeyDown(KEY_RIGHT)) proximoX += jogador->velocidade;
+                if (IsKeyDown(KEY_LEFT))  proximoX -= jogador->velocidade;
+                if (!ChecarColisao(mapa, proximoX, jogador->pos.y)) jogador->pos.x = proximoX;
 
-            // Atualizar Temporizador das Bombas
-            for (int i = 0; i < player->maxBombs; i++) {
-                if (player->bombs[i].active) {
-                    if (!player->bombs[i].exploding) {
-                        player->bombs[i].timer -= deltaTime;
-                        // Aciona a explosão
-                        if (player->bombs[i].timer <= 0) {
-                            player->bombs[i].exploding = true;
-                            player->bombs[i].explosionTimer = 0.4f; // Tempo que o efeito fica na tela
-                            ProcessExplosion(map, &player->bombs[i]); // Processa blocos destruídos
-                        }
-                    } else {
-                        // Contador para sumir o efeito visual do fogo
-                        player->bombs[i].explosionTimer -= deltaTime;
-                        if (player->bombs[i].explosionTimer <= 0) {
-                            player->bombs[i].active = false;
-                            player->bombs[i].exploding = false;
+                if (IsKeyDown(KEY_DOWN))  proximoY += jogador->velocidade;
+                if (IsKeyDown(KEY_UP))    proximoY -= jogador->velocidade;
+                if (!ChecarColisao(mapa, jogador->pos.x, proximoY)) jogador->pos.y = proximoY;
+
+                if (IsKeyPressed(KEY_SPACE)) {
+                    PlantarBomba(jogador);
+                }
+
+                for (int i = 0; i < jogador->maxBombas; i++) {
+                    if (jogador->bombas[i].ativa) {
+                        if (!jogador->bombas[i].explodindo) {
+                            jogador->bombas[i].temporizador -= deltaTime;
+
+                            if (jogador->bombas[i].temporizador <= 0) {
+                                jogador->bombas[i].explodindo = true;
+                                jogador->bombas[i].tempoExplosao = 0.4f;
+                                ProcessarExplosao(mapa, &jogador->bombas[i]);
+                            }
+                        } else {
+                            jogador->bombas[i].tempoExplosao -= deltaTime;
+                            if (jogador->bombas[i].tempoExplosao <= 0) {
+                                jogador->bombas[i].ativa = false;
+                                jogador->bombas[i].explodindo = false;
+                            }
                         }
                     }
                 }
             }
         }
 
-        // --- RENDERIZAÇÃO ---
         BeginDrawing();
-            ClearBackground(RAYWHITE);
+        ClearBackground(RAYWHITE);
 
-            if (state == STATE_PLAYING) {
-                // Desenhar o Mapa
-                for (int r = 0; r < map->rows; r++) {
-                    for (int c = 0; c < map->cols; c++) {
-                        if (map->grid[r][c] == TILE_WALL) {
-                            DrawRectangle(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE - 2, TILE_SIZE - 2, DARKGRAY);
-                        } else if (map->grid[r][c] == TILE_BLOCK) {
-                            DrawRectangle(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE - 2, TILE_SIZE - 2, DARKBROWN);
-                        } else {
-                            DrawRectangle(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE - 2, TILE_SIZE - 2, LIGHTGRAY);
-                        }
+        if (estado == ESTADO_JOGANDO) {
+            for (int r = 0; r < mapa->linhas; r++) {
+                for (int c = 0; c < mapa->colunas; c++) {
+                    if (mapa->matriz[r][c] == BLOCO_PAREDE) {
+                        DrawRectangle(c * TAMANHO_BLOCO, r * TAMANHO_BLOCO, TAMANHO_BLOCO - 2, TAMANHO_BLOCO - 2, DARKGRAY);
+                    } else if (mapa->matriz[r][c] == BLOCO_DESTRUTIVEL) {
+                        DrawRectangle(c * TAMANHO_BLOCO, r * TAMANHO_BLOCO, TAMANHO_BLOCO - 2, TAMANHO_BLOCO - 2, DARKBROWN);
+                    } else {
+                        DrawRectangle(c * TAMANHO_BLOCO, r * TAMANHO_BLOCO, TAMANHO_BLOCO - 2, TAMANHO_BLOCO - 2, LIGHTGRAY);
                     }
                 }
-
-                // Desenhar Bombas e Explosões
-                for (int i = 0; i < player->maxBombs; i++) {
-                    if (player->bombs[i].active) {
-                        if (!player->bombs[i].exploding) {
-                            // Bomba não detonada ainda
-                            DrawCircle(player->bombs[i].pos.x + TILE_SIZE / 2, player->bombs[i].pos.y + TILE_SIZE / 2, TILE_SIZE / 3, BLACK);
-                        } else {
-                            // --- NOVO: Desenhar Efeito de Explosão ---
-                            int bx = player->bombs[i].pos.x / TILE_SIZE;
-                            int by = player->bombs[i].pos.y / TILE_SIZE;
-                            
-                            DrawExplosionTile(bx, by); // Centro
-                            for (int r = 1; r <= player->bombs[i].expRight; r++) DrawExplosionTile(bx + r, by);
-                            for (int r = 1; r <= player->bombs[i].expLeft; r++)  DrawExplosionTile(bx - r, by);
-                            for (int r = 1; r <= player->bombs[i].expDown; r++)  DrawExplosionTile(bx, by + r);
-                            for (int r = 1; r <= player->bombs[i].expUp; r++)    DrawExplosionTile(bx, by - r);
-                        }
-                    }
-                }
-
-                // Desenhar Jogador
-                DrawRectangle(player->pos.x, player->pos.y, PLAYER_SIZE, PLAYER_SIZE, BLUE);
-
-                // HUD
-                char hudText[64];
-                snprintf(hudText, sizeof(hudText), "Jogador: %s", player->name);
-                DrawRectangle(0, MAP_ROWS * TILE_SIZE, screenWidth, 40, BLACK);
-                DrawText(hudText, 10, MAP_ROWS * TILE_SIZE + 10, 16, WHITE);
             }
+
+            for (int i = 0; i < jogador->maxBombas; i++) {
+                if (jogador->bombas[i].ativa) {
+                    if (!jogador->bombas[i].explodindo) {
+                        DrawCircle(jogador->bombas[i].pos.x + TAMANHO_BLOCO / 2, jogador->bombas[i].pos.y + TAMANHO_BLOCO / 2, TAMANHO_BLOCO / 3, BLACK);
+                    } else {
+                        int bx = jogador->bombas[i].pos.x / TAMANHO_BLOCO;
+                        int by = jogador->bombas[i].pos.y / TAMANHO_BLOCO;
+
+                        DesenharBlocoExplosao(bx, by);
+                        for (int r = 1; r <= jogador->bombas[i].expDireita; r++) DesenharBlocoExplosao(bx + r, by);
+                        for (int r = 1; r <= jogador->bombas[i].expEsquerda; r++) DesenharBlocoExplosao(bx - r, by);
+                        for (int r = 1; r <= jogador->bombas[i].expBaixo; r++)    DesenharBlocoExplosao(bx, by + r);
+                        for (int r = 1; r <= jogador->bombas[i].expCima; r++)     DesenharBlocoExplosao(bx, by - r);
+                    }
+                }
+            }
+
+            DrawRectangle(jogador->pos.x, jogador->pos.y, TAMANHO_JOGADOR, TAMANHO_JOGADOR, BLUE);
+
+            char textoHUD[64];
+            snprintf(textoHUD, sizeof(textoHUD), "Jogador: %s", jogador->nome);
+            DrawRectangle(0, LINHAS_MAPA * TAMANHO_BLOCO, larguraTela, 40, BLACK);
+            DrawText(textoHUD, 10, LINHAS_MAPA * TAMANHO_BLOCO + 12, 16, WHITE);
+            DrawText("Pressione Q para pausar", larguraTela - 220, LINHAS_MAPA * TAMANHO_BLOCO + 12, 16, WHITE);
+        }
+
+        if (pausado) {
+            DrawText("JOGO PAUSADO", larguraTela / 2 - 135, alturaTela / 2 - 35, 35, BLACK);
+        }
+
         EndDrawing();
     }
 
-    free(player);
-    FreeMap(map);
+    free(jogador);
+    LiberarMapa(mapa);
     CloseWindow();
 
     return 0;
