@@ -9,12 +9,13 @@
 #define MAX_BOMBAS 5
 #define TAMANHO_JOGADOR (TAMANHO_BLOCO - 10)
 
-// Configuração dos Caminhos dos Arquivos
+// Caminhos dos Arquivos
 #define CAMINHO_SPRITE_BOMBA "assets/images/bomb.png" 
 #define CAMINHO_SOM_EXPLOSAO "assets/sounds/explosion.wav"
+#define CAMINHO_SPRITE_JOGADOR "assets/images/back-walk.png" // <--- CAMINHO DA TEXTURA DO JOGADOR
 
-
-#define FRAMES_BOMBA 3
+#define FRAMES_BOMBA 3 
+#define FRAMES_JOGADOR_BAIXO 3 
 
 bool pausado = false;
 
@@ -54,6 +55,11 @@ typedef struct Jogador {
     bool vivo;
     char nome[32];
     Bomba bombas[MAX_BOMBAS];
+    
+    // Variáveis de Animação do Jogador
+    int frameAtual;
+    float tempoFrame;
+    bool movendo;
 } Jogador;
 
 typedef struct MapaJogo {
@@ -136,7 +142,6 @@ void DesenharBlocoExplosao(int gridX, int gridY) {
 }
 
 void DesenharBombaAnimada(Bomba* b, Texture2D textura) {
-    // Se a textura não for encontrada/carregada, usa o círculo padrão como fallback
     if (textura.id == 0) {
         DrawCircle(b->pos.x + TAMANHO_BLOCO / 2, b->pos.y + TAMANHO_BLOCO / 2, TAMANHO_BLOCO / 3, BLACK);
         return;
@@ -147,6 +152,24 @@ void DesenharBombaAnimada(Bomba* b, Texture2D textura) {
 
     Rectangle sourceRec = { b->frameAtual * larguraFrame, 0.0f, larguraFrame, alturaFrame };
     Rectangle destRec = { b->pos.x, b->pos.y, (float)TAMANHO_BLOCO, (float)TAMANHO_BLOCO };
+    Vector2 origin = { 0.0f, 0.0f };
+
+    DrawTexturePro(textura, sourceRec, destRec, origin, 0.0f, WHITE);
+}
+
+// Função para desenhar o jogador animado
+void DesenharJogador(Jogador* j, Texture2D textura) {
+    // Caso a textura não carregue, desenha o quadrado azul antigo
+    if (textura.id == 0) {
+        DrawRectangle(j->pos.x, j->pos.y, TAMANHO_JOGADOR, TAMANHO_JOGADOR, BLUE);
+        return;
+    }
+
+    float larguraFrame = (float)textura.width / FRAMES_JOGADOR_BAIXO;
+    float alturaFrame = (float)textura.height;
+
+    Rectangle sourceRec = { j->frameAtual * larguraFrame, 0.0f, larguraFrame, alturaFrame };
+    Rectangle destRec = { j->pos.x, j->pos.y, (float)TAMANHO_JOGADOR, (float)TAMANHO_JOGADOR };
     Vector2 origin = { 0.0f, 0.0f };
 
     DrawTexturePro(textura, sourceRec, destRec, origin, 0.0f, WHITE);
@@ -187,6 +210,9 @@ Jogador* CriarJogador(const char* nomeEntrada, float startX, float startY) {
     j->velocidade = 3.0f;
     j->maxBombas = 2;
     j->vivo = true;
+    j->frameAtual = 0;
+    j->tempoFrame = 0.0f;
+    j->movendo = false;
 
     if (strcmp(nomeEntrada, "") == 0) strcpy(j->nome, "Jogador 1");
     else strcpy(j->nome, nomeEntrada);
@@ -230,11 +256,11 @@ int main(void) {
     const int alturaTela = LINHAS_MAPA * TAMANHO_BLOCO + 40;
 
     InitWindow(larguraTela, alturaTela, "Detonatrix - Engine 2D");
-    InitAudioDevice(); // Inicializa o subsistema de áudio
+    InitAudioDevice();
     SetTargetFPS(60);
 
-    // Carregamento de Recursos (Ajuste os caminhos no topo do arquivo)
     Texture2D texturaBomba = LoadTexture(CAMINHO_SPRITE_BOMBA);
+    Texture2D texturaJogadorBaixo = LoadTexture(CAMINHO_SPRITE_JOGADOR); // Carrega sprite do jogador
     Sound somExplosao = LoadSound(CAMINHO_SOM_EXPLOSAO);
 
     EstadoJogo estado = ESTADO_JOGANDO;
@@ -251,14 +277,31 @@ int main(void) {
         if (!pausado && estado == ESTADO_JOGANDO && jogador->vivo) {
             float proximoX = jogador->pos.x;
             float proximoY = jogador->pos.y;
+            jogador->movendo = false;
 
-            if (IsKeyDown(KEY_RIGHT)) proximoX += jogador->velocidade;
-            if (IsKeyDown(KEY_LEFT))  proximoX -= jogador->velocidade;
+            if (IsKeyDown(KEY_RIGHT)) { proximoX += jogador->velocidade; }
+            if (IsKeyDown(KEY_LEFT))  { proximoX -= jogador->velocidade; }
             if (!ChecarColisao(mapa, proximoX, jogador->pos.y)) jogador->pos.x = proximoX;
 
-            if (IsKeyDown(KEY_DOWN))  proximoY += jogador->velocidade;
-            if (IsKeyDown(KEY_UP))    proximoY -= jogador->velocidade;
+            if (IsKeyDown(KEY_UP)) { proximoY -= jogador->velocidade; }
+            
+            // Movimento para baixo
+            if (IsKeyDown(KEY_DOWN)) { 
+                proximoY += jogador->velocidade; 
+                jogador->movendo = true; // Ativa flag de movimento
+            }
             if (!ChecarColisao(mapa, jogador->pos.x, proximoY)) jogador->pos.y = proximoY;
+
+            // Atualiza Animação do Jogador andando para baixo
+            if (jogador->movendo) {
+                jogador->tempoFrame += deltaTime;
+                if (jogador->tempoFrame >= 0.12f) { // Troca de frame a cada 0.12s
+                    jogador->tempoFrame = 0.0f;
+                    jogador->frameAtual = (jogador->frameAtual + 1) % FRAMES_JOGADOR_BAIXO;
+                }
+            } else {
+                jogador->frameAtual = 0; // Volta para o frame parado se soltar a tecla
+            }
 
             if (IsKeyPressed(KEY_SPACE)) {
                 PlantarBomba(jogador);
@@ -269,20 +312,16 @@ int main(void) {
                     if (!jogador->bombas[i].explodindo) {
                         jogador->bombas[i].temporizador -= deltaTime;
 
-                        // Animação da bomba (Avança o frame)
                         jogador->bombas[i].tempoFrame += deltaTime;
-                        if (jogador->bombas[i].tempoFrame >= 0.15f) { // Troca de frame a cada 0.15s
+                        if (jogador->bombas[i].tempoFrame >= 0.15f) {
                             jogador->bombas[i].tempoFrame = 0.0f;
                             jogador->bombas[i].frameAtual = (jogador->bombas[i].frameAtual + 1) % FRAMES_BOMBA;
                         }
 
-                        // Acionamento da explosão
                         if (jogador->bombas[i].temporizador <= 0) {
                             jogador->bombas[i].explodindo = true;
                             jogador->bombas[i].tempoExplosao = 0.4f;
                             ProcessarExplosao(mapa, &jogador->bombas[i]);
-                            
-                            // Toca o som da explosão
                             PlaySound(somExplosao);
                         }
                     } else {
@@ -327,7 +366,6 @@ int main(void) {
                 }
             }
 
-            // Renderiza Bombas
             for (int i = 0; i < jogador->maxBombas; i++) {
                 if (jogador->bombas[i].ativa) {
                     if (!jogador->bombas[i].explodindo) {
@@ -345,8 +383,9 @@ int main(void) {
                 }
             }
 
+            // Desenha o jogador com a textura
             if (jogador->vivo) {
-                DrawRectangle(jogador->pos.x, jogador->pos.y, TAMANHO_JOGADOR, TAMANHO_JOGADOR, BLUE);
+                DesenharJogador(jogador, texturaJogadorBaixo);
             }
 
             char textoHUD[64];
@@ -368,8 +407,8 @@ int main(void) {
         EndDrawing();
     }
 
-    // Liberação dos Recursos da GPU e Som
     UnloadTexture(texturaBomba);
+    UnloadTexture(texturaJogadorBaixo); // Descarrega a textura do jogador
     UnloadSound(somExplosao);
     CloseAudioDevice();
 
