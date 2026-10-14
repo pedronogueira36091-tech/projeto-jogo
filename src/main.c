@@ -9,13 +9,17 @@
 #define MAX_BOMBAS 5
 #define TAMANHO_JOGADOR (TAMANHO_BLOCO - 10)
 
-// Caminhos dos Arquivos
 #define CAMINHO_SPRITE_BOMBA "assets/images/bomb.png" 
 #define CAMINHO_SOM_EXPLOSAO "assets/sounds/explosion.wav"
-#define CAMINHO_SPRITE_JOGADOR "assets/images/back-walk.png" // <--- CAMINHO DA TEXTURA DO JOGADOR
+#define CAMINHO_SOM_DERROTA "assets/sounds/lose.wav"
+
+#define CAMINHO_SPRITE_JOGADOR_BAIXO    "assets/images/back-walk.png"
+#define CAMINHO_SPRITE_JOGADOR_CIMA     "assets/images/upa-walk.png"
+#define CAMINHO_SPRITE_JOGADOR_ESQUERDA "assets/images/left-walk.png"
+#define CAMINHO_SPRITE_JOGADOR_DIREITA  "assets/images/right-walk.png"
 
 #define FRAMES_BOMBA 3 
-#define FRAMES_JOGADOR_BAIXO 3 
+#define FRAMES_JOGADOR 3 
 
 bool pausado = false;
 
@@ -30,6 +34,13 @@ typedef enum TipoBloco {
     BLOCO_PAREDE,
     BLOCO_DESTRUTIVEL
 } TipoBloco;
+
+typedef enum Direcao {
+    DIRECAO_BAIXO,
+    DIRECAO_CIMA,
+    DIRECAO_ESQUERDA,
+    DIRECAO_DIREITA
+} Direcao;
 
 typedef struct Posicao {
     float x;
@@ -56,10 +67,11 @@ typedef struct Jogador {
     char nome[32];
     Bomba bombas[MAX_BOMBAS];
     
-    // Variáveis de Animação do Jogador
+    // Variáveis de Animação e Direção
     int frameAtual;
     float tempoFrame;
     bool movendo;
+    Direcao direcaoAtual;
 } Jogador;
 
 typedef struct MapaJogo {
@@ -157,22 +169,30 @@ void DesenharBombaAnimada(Bomba* b, Texture2D textura) {
     DrawTexturePro(textura, sourceRec, destRec, origin, 0.0f, WHITE);
 }
 
-// Função para desenhar o jogador animado
-void DesenharJogador(Jogador* j, Texture2D textura) {
-    // Caso a textura não carregue, desenha o quadrado azul antigo
-    if (textura.id == 0) {
+// Desenha o jogador escolhendo a textura correta conforme a direção atual
+void DesenharJogador(Jogador* j, Texture2D texBaixo, Texture2D texCima, Texture2D texEsquerda, Texture2D texDireita) {
+    Texture2D texturaAtual = texBaixo;
+
+    switch (j->direcaoAtual) {
+        case DIRECAO_BAIXO:    texturaAtual = texBaixo; break;
+        case DIRECAO_CIMA:     texturaAtual = texCima; break;
+        case DIRECAO_ESQUERDA: texturaAtual = texEsquerda; break;
+        case DIRECAO_DIREITA:  texturaAtual = texDireita; break;
+    }
+
+    if (texturaAtual.id == 0) {
         DrawRectangle(j->pos.x, j->pos.y, TAMANHO_JOGADOR, TAMANHO_JOGADOR, BLUE);
         return;
     }
 
-    float larguraFrame = (float)textura.width / FRAMES_JOGADOR_BAIXO;
-    float alturaFrame = (float)textura.height;
+    float larguraFrame = (float)texturaAtual.width / FRAMES_JOGADOR;
+    float alturaFrame = (float)texturaAtual.height;
 
     Rectangle sourceRec = { j->frameAtual * larguraFrame, 0.0f, larguraFrame, alturaFrame };
     Rectangle destRec = { j->pos.x, j->pos.y, (float)TAMANHO_JOGADOR, (float)TAMANHO_JOGADOR };
     Vector2 origin = { 0.0f, 0.0f };
 
-    DrawTexturePro(textura, sourceRec, destRec, origin, 0.0f, WHITE);
+    DrawTexturePro(texturaAtual, sourceRec, destRec, origin, 0.0f, WHITE);
 }
 
 MapaJogo* CriarMapa(int linhas, int colunas) {
@@ -213,6 +233,7 @@ Jogador* CriarJogador(const char* nomeEntrada, float startX, float startY) {
     j->frameAtual = 0;
     j->tempoFrame = 0.0f;
     j->movendo = false;
+    j->direcaoAtual = DIRECAO_BAIXO;
 
     if (strcmp(nomeEntrada, "") == 0) strcpy(j->nome, "Jogador 1");
     else strcpy(j->nome, nomeEntrada);
@@ -259,9 +280,16 @@ int main(void) {
     InitAudioDevice();
     SetTargetFPS(60);
 
+    // Carregamento de Texturas
     Texture2D texturaBomba = LoadTexture(CAMINHO_SPRITE_BOMBA);
-    Texture2D texturaJogadorBaixo = LoadTexture(CAMINHO_SPRITE_JOGADOR); // Carrega sprite do jogador
+    Texture2D texJogadorBaixo = LoadTexture(CAMINHO_SPRITE_JOGADOR_BAIXO);
+    Texture2D texJogadorCima = LoadTexture(CAMINHO_SPRITE_JOGADOR_CIMA);
+    Texture2D texJogadorEsquerda = LoadTexture(CAMINHO_SPRITE_JOGADOR_ESQUERDA);
+    Texture2D texJogadorDireita = LoadTexture(CAMINHO_SPRITE_JOGADOR_DIREITA);
+
+    // Carregamento de Sons
     Sound somExplosao = LoadSound(CAMINHO_SOM_EXPLOSAO);
+    Sound somDerrota = LoadSound(CAMINHO_SOM_DERROTA);
 
     EstadoJogo estado = ESTADO_JOGANDO;
     MapaJogo* mapa = CriarMapa(LINHAS_MAPA, COLUNAS_MAPA);
@@ -279,28 +307,40 @@ int main(void) {
             float proximoY = jogador->pos.y;
             jogador->movendo = false;
 
-            if (IsKeyDown(KEY_RIGHT)) { proximoX += jogador->velocidade; }
-            if (IsKeyDown(KEY_LEFT))  { proximoX -= jogador->velocidade; }
+            // Movimentação e ajuste de direção
+            if (IsKeyDown(KEY_RIGHT)) { 
+                proximoX += jogador->velocidade; 
+                jogador->direcaoAtual = DIRECAO_DIREITA;
+                jogador->movendo = true;
+            }
+            else if (IsKeyDown(KEY_LEFT)) { 
+                proximoX -= jogador->velocidade; 
+                jogador->direcaoAtual = DIRECAO_ESQUERDA;
+                jogador->movendo = true;
+            }
             if (!ChecarColisao(mapa, proximoX, jogador->pos.y)) jogador->pos.x = proximoX;
 
-            if (IsKeyDown(KEY_UP)) { proximoY -= jogador->velocidade; }
-            
-            // Movimento para baixo
-            if (IsKeyDown(KEY_DOWN)) { 
+            if (IsKeyDown(KEY_UP)) { 
+                proximoY -= jogador->velocidade; 
+                jogador->direcaoAtual = DIRECAO_CIMA;
+                jogador->movendo = true;
+            }
+            else if (IsKeyDown(KEY_DOWN)) { 
                 proximoY += jogador->velocidade; 
-                jogador->movendo = true; // Ativa flag de movimento
+                jogador->direcaoAtual = DIRECAO_BAIXO;
+                jogador->movendo = true;
             }
             if (!ChecarColisao(mapa, jogador->pos.x, proximoY)) jogador->pos.y = proximoY;
 
-            // Atualiza Animação do Jogador andando para baixo
+            // Animação de caminhada
             if (jogador->movendo) {
                 jogador->tempoFrame += deltaTime;
-                if (jogador->tempoFrame >= 0.12f) { // Troca de frame a cada 0.12s
+                if (jogador->tempoFrame >= 0.12f) {
                     jogador->tempoFrame = 0.0f;
-                    jogador->frameAtual = (jogador->frameAtual + 1) % FRAMES_JOGADOR_BAIXO;
+                    jogador->frameAtual = (jogador->frameAtual + 1) % FRAMES_JOGADOR;
                 }
             } else {
-                jogador->frameAtual = 0; // Volta para o frame parado se soltar a tecla
+                jogador->frameAtual = 0;
             }
 
             if (IsKeyPressed(KEY_SPACE)) {
@@ -345,8 +385,10 @@ int main(void) {
                 }
             }
 
+            // Transição para Fim de Jogo e som de derrota
             if (!jogador->vivo) {
                 estado = ESTADO_FIM_DE_JOGO;
+                PlaySound(somDerrota); // Toca o som de Game Over
             }
         }
 
@@ -383,9 +425,8 @@ int main(void) {
                 }
             }
 
-            // Desenha o jogador com a textura
             if (jogador->vivo) {
-                DesenharJogador(jogador, texturaJogadorBaixo);
+                DesenharJogador(jogador, texJogadorBaixo, texJogadorCima, texJogadorEsquerda, texJogadorDireita);
             }
 
             char textoHUD[64];
@@ -407,9 +448,15 @@ int main(void) {
         EndDrawing();
     }
 
+    // Descarregamento de Recursos
     UnloadTexture(texturaBomba);
-    UnloadTexture(texturaJogadorBaixo); // Descarrega a textura do jogador
+    UnloadTexture(texJogadorBaixo);
+    UnloadTexture(texJogadorCima);
+    UnloadTexture(texJogadorEsquerda);
+    UnloadTexture(texJogadorDireita);
+
     UnloadSound(somExplosao);
+    UnloadSound(somDerrota);
     CloseAudioDevice();
 
     free(jogador);
