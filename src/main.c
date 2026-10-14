@@ -14,9 +14,12 @@
 #define CAMINHO_SOM_DERROTA "assets/sounds/lose.wav"
 
 #define CAMINHO_SPRITE_JOGADOR_BAIXO    "assets/images/back-walk.png"
-#define CAMINHO_SPRITE_JOGADOR_CIMA     "assets/images/upa-walk.png"
+#define CAMINHO_SPRITE_JOGADOR_CIMA     "assets/images/up-walk.png"
 #define CAMINHO_SPRITE_JOGADOR_ESQUERDA "assets/images/left-walk.png"
 #define CAMINHO_SPRITE_JOGADOR_DIREITA  "assets/images/right-walk.png"
+
+#define CAMINHO_SPRITE_PAREDE      "assets/images/bridge.png"     
+#define CAMINHO_SPRITE_DESTRUTIVEL "assets/images/breakwall.png" 
 
 #define FRAMES_BOMBA 3 
 #define FRAMES_JOGADOR 3 
@@ -67,7 +70,6 @@ typedef struct Jogador {
     char nome[32];
     Bomba bombas[MAX_BOMBAS];
     
-    // Variáveis de Animação e Direção
     int frameAtual;
     float tempoFrame;
     bool movendo;
@@ -169,7 +171,6 @@ void DesenharBombaAnimada(Bomba* b, Texture2D textura) {
     DrawTexturePro(textura, sourceRec, destRec, origin, 0.0f, WHITE);
 }
 
-// Desenha o jogador escolhendo a textura correta conforme a direção atual
 void DesenharJogador(Jogador* j, Texture2D texBaixo, Texture2D texCima, Texture2D texEsquerda, Texture2D texDireita) {
     Texture2D texturaAtual = texBaixo;
 
@@ -193,6 +194,36 @@ void DesenharJogador(Jogador* j, Texture2D texBaixo, Texture2D texCima, Texture2
     Vector2 origin = { 0.0f, 0.0f };
 
     DrawTexturePro(texturaAtual, sourceRec, destRec, origin, 0.0f, WHITE);
+}
+
+// Função para desenhar o mapa utilizando DrawTexturePro diretamente
+void DesenharMapa(MapaJogo* mapa, Texture2D texParede, Texture2D texDestrutivel) {
+    for (int r = 0; r < mapa->linhas; r++) {
+        for (int c = 0; c < mapa->colunas; c++) {
+            float x = c * TAMANHO_BLOCO;
+            float y = r * TAMANHO_BLOCO;
+
+            if (mapa->matriz[r][c] == BLOCO_PAREDE) {
+                if (texParede.id != 0) {
+                    Rectangle src = { 0, 0, (float)texParede.width, (float)texParede.height };
+                    Rectangle dst = { x, y, TAMANHO_BLOCO, TAMANHO_BLOCO };
+                    DrawTexturePro(texParede, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
+                } else {
+                    DrawRectangle(x, y, TAMANHO_BLOCO - 2, TAMANHO_BLOCO - 2, DARKGRAY);
+                }
+            } else if (mapa->matriz[r][c] == BLOCO_DESTRUTIVEL) {
+                if (texDestrutivel.id != 0) {
+                    Rectangle src = { 0, 0, (float)texDestrutivel.width, (float)texDestrutivel.height };
+                    Rectangle dst = { x, y, TAMANHO_BLOCO, TAMANHO_BLOCO };
+                    DrawTexturePro(texDestrutivel, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
+                } else {
+                    DrawRectangle(x, y, TAMANHO_BLOCO - 2, TAMANHO_BLOCO - 2, DARKBROWN);
+                }
+            } else {
+                DrawRectangle(x, y, TAMANHO_BLOCO - 2, TAMANHO_BLOCO - 2, LIGHTGRAY);
+            }
+        }
+    }
 }
 
 MapaJogo* CriarMapa(int linhas, int colunas) {
@@ -280,12 +311,16 @@ int main(void) {
     InitAudioDevice();
     SetTargetFPS(60);
 
-    // Carregamento de Texturas
+    // Carregamento de Texturas do Jogador e Bomba
     Texture2D texturaBomba = LoadTexture(CAMINHO_SPRITE_BOMBA);
     Texture2D texJogadorBaixo = LoadTexture(CAMINHO_SPRITE_JOGADOR_BAIXO);
     Texture2D texJogadorCima = LoadTexture(CAMINHO_SPRITE_JOGADOR_CIMA);
     Texture2D texJogadorEsquerda = LoadTexture(CAMINHO_SPRITE_JOGADOR_ESQUERDA);
     Texture2D texJogadorDireita = LoadTexture(CAMINHO_SPRITE_JOGADOR_DIREITA);
+
+    // Carregamento de Texturas dos Blocos
+    Texture2D texParede = LoadTexture(CAMINHO_SPRITE_PAREDE);
+    Texture2D texDestrutivel = LoadTexture(CAMINHO_SPRITE_DESTRUTIVEL);
 
     // Carregamento de Sons
     Sound somExplosao = LoadSound(CAMINHO_SOM_EXPLOSAO);
@@ -307,7 +342,6 @@ int main(void) {
             float proximoY = jogador->pos.y;
             jogador->movendo = false;
 
-            // Movimentação e ajuste de direção
             if (IsKeyDown(KEY_RIGHT)) { 
                 proximoX += jogador->velocidade; 
                 jogador->direcaoAtual = DIRECAO_DIREITA;
@@ -332,7 +366,6 @@ int main(void) {
             }
             if (!ChecarColisao(mapa, jogador->pos.x, proximoY)) jogador->pos.y = proximoY;
 
-            // Animação de caminhada
             if (jogador->movendo) {
                 jogador->tempoFrame += deltaTime;
                 if (jogador->tempoFrame >= 0.12f) {
@@ -385,10 +418,9 @@ int main(void) {
                 }
             }
 
-            // Transição para Fim de Jogo e som de derrota
             if (!jogador->vivo) {
                 estado = ESTADO_FIM_DE_JOGO;
-                PlaySound(somDerrota); // Toca o som de Game Over
+                PlaySound(somDerrota);
             }
         }
 
@@ -396,17 +428,9 @@ int main(void) {
         ClearBackground(RAYWHITE);
 
         if (estado == ESTADO_JOGANDO || estado == ESTADO_FIM_DE_JOGO) {
-            for (int r = 0; r < mapa->linhas; r++) {
-                for (int c = 0; c < mapa->colunas; c++) {
-                    if (mapa->matriz[r][c] == BLOCO_PAREDE) {
-                        DrawRectangle(c * TAMANHO_BLOCO, r * TAMANHO_BLOCO, TAMANHO_BLOCO - 2, TAMANHO_BLOCO - 2, DARKGRAY);
-                    } else if (mapa->matriz[r][c] == BLOCO_DESTRUTIVEL) {
-                        DrawRectangle(c * TAMANHO_BLOCO, r * TAMANHO_BLOCO, TAMANHO_BLOCO - 2, TAMANHO_BLOCO - 2, DARKBROWN);
-                    } else {
-                        DrawRectangle(c * TAMANHO_BLOCO, r * TAMANHO_BLOCO, TAMANHO_BLOCO - 2, TAMANHO_BLOCO - 2, LIGHTGRAY);
-                    }
-                }
-            }
+            
+            // Desenha os blocos do mapa usando as texturas
+            DesenharMapa(mapa, texParede, texDestrutivel);
 
             for (int i = 0; i < jogador->maxBombas; i++) {
                 if (jogador->bombas[i].ativa) {
@@ -454,6 +478,8 @@ int main(void) {
     UnloadTexture(texJogadorCima);
     UnloadTexture(texJogadorEsquerda);
     UnloadTexture(texJogadorDireita);
+    UnloadTexture(texParede);
+    UnloadTexture(texDestrutivel);
 
     UnloadSound(somExplosao);
     UnloadSound(somDerrota);
