@@ -466,7 +466,7 @@ int main(void) {
         }
 
         if (pausado && estado == ESTADO_JOGANDO) {
-            DrawText("JOGO PAUSADO", larguraTela / 2 - 135, alturaTela / 2 - 35, 35, BLACK);
+            DrawText("JOGO PAUSADO", larguraTela / 2 - 135, alturaTela / 2 - 35, 35, WHITE);
         }
 
         EndDrawing();
