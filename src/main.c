@@ -12,6 +12,7 @@
 #define CAMINHO_SPRITE_BOMBA "assets/images/bomb.png" 
 #define CAMINHO_SOM_EXPLOSAO "assets/sounds/explosion.wav"
 #define CAMINHO_SOM_DERROTA "assets/sounds/lose.wav"
+#define CAMINHO_SOM_DE_FUNDO "assets/sounds/Super Bomberman - Level 1 (ost snes)(MP3_70K).mp3"
 
 #define CAMINHO_SPRITE_JOGADOR_BAIXO    "assets/images/back-walk.png"
 #define CAMINHO_SPRITE_JOGADOR_CIMA     "assets/images/up-walk.png"
@@ -325,12 +326,23 @@ int main(void) {
     // Carregamento de Sons
     Sound somExplosao = LoadSound(CAMINHO_SOM_EXPLOSAO);
     Sound somDerrota = LoadSound(CAMINHO_SOM_DERROTA);
+    Sound somMusica = LoadSound(CAMINHO_SOM_DE_FUNDO);
 
     EstadoJogo estado = ESTADO_JOGANDO;
     MapaJogo* mapa = CriarMapa(LINHAS_MAPA, COLUNAS_MAPA);
     Jogador* jogador = CriarJogador("Detonador", TAMANHO_BLOCO + 5, TAMANHO_BLOCO + 5);
 
     while (!WindowShouldClose()) {
+        if (estado == ESTADO_JOGANDO && !pausado) {
+            if (!IsSoundPlaying(somMusica)) {
+                PlaySound(somMusica);
+            }
+        } else {
+        
+            if (IsSoundPlaying(somMusica)) {
+                StopSound(somMusica); 
+            }
+        }
         float deltaTime = GetFrameTime();
 
         if (IsKeyPressed(KEY_Q)) {
