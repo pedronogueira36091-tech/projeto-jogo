@@ -474,7 +474,7 @@ int main(void) {
 
         if (estado == ESTADO_FIM_DE_JOGO) {
             DrawRectangle(0, 0, larguraTela, alturaTela, Fade(RED, 0.4f));
-            DrawText("GAME OVER", larguraTela / 2 - 110, alturaTela / 2 - 30, 40, WHITE);
+            DrawText("GAME OVER", larguraTela / 2 - 135, alturaTela / 2 - 35, 35, WHITE);
         }
 
         if (pausado && estado == ESTADO_JOGANDO) {
@@ -484,7 +484,6 @@ int main(void) {
         EndDrawing();
     }
 
-    // Descarregamento de Recursos
     UnloadTexture(texturaBomba);
     UnloadTexture(texJogadorBaixo);
     UnloadTexture(texJogadorCima);
