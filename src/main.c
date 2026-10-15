@@ -474,7 +474,7 @@ int main(void) {
 
         if (estado == ESTADO_FIM_DE_JOGO) {
             DrawRectangle(0, 0, larguraTela, alturaTela, Fade(RED, 0.4f));
-            DrawText("GAME OVER", larguraTela / 2 - 135, alturaTela / 2 - 35, 35, WHITE);
+            DrawText("GAME OVER", larguraTela / 2 - 120, alturaTela / 2 - 35, 40, WHITE);
         }
 
         if (pausado && estado == ESTADO_JOGANDO) {
