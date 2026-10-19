@@ -308,6 +308,9 @@ int main(void) {
     const int larguraTela = COLUNAS_MAPA * TAMANHO_BLOCO;
     const int alturaTela = LINHAS_MAPA * TAMANHO_BLOCO + 40;
 
+    bool em_espera = true;
+    float tempo_espera = 5.0f;
+
     InitWindow(larguraTela, alturaTela, "Detonatrix - Engine 2D");
     InitAudioDevice();
     SetTargetFPS(60);
@@ -333,154 +336,179 @@ int main(void) {
     Jogador* jogador = CriarJogador("Detonador", TAMANHO_BLOCO + 5, TAMANHO_BLOCO + 5);
 
     PlayMusicStream(somMusica);
-    while (!WindowShouldClose()) {
+while (!WindowShouldClose()) {
+    float deltaTime = GetFrameTime();
+    UpdateMusicStream(somMusica);
 
-        UpdateMusicStream(somMusica);
-        if (estado == ESTADO_JOGANDO && !pausado) {
-            ResumeMusicStream(somMusica);
-        } else {
-            PauseMusicStream(somMusica);
+    // 1. Atualização da Contagem Regressiva (espera inicial)
+    if (em_espera) {
+        tempo_espera -= deltaTime;
+        if (tempo_espera <= 0.0f) {
+            em_espera = false;
         }
-        float deltaTime = GetFrameTime();
-
-        if (IsKeyPressed(KEY_Q)) {
-            pausado = !pausado;
-        }
-
-        if (!pausado && estado == ESTADO_JOGANDO && jogador->vivo) {
-            float proximoX = jogador->pos.x;
-            float proximoY = jogador->pos.y;
-            jogador->movendo = false;
-
-            if (IsKeyDown(KEY_RIGHT)) { 
-                proximoX += jogador->velocidade; 
-                jogador->direcaoAtual = DIRECAO_DIREITA;
-                jogador->movendo = true;
-            }
-            else if (IsKeyDown(KEY_LEFT)) { 
-                proximoX -= jogador->velocidade; 
-                jogador->direcaoAtual = DIRECAO_ESQUERDA;
-                jogador->movendo = true;
-            }
-            if (!ChecarColisao(mapa, proximoX, jogador->pos.y)) jogador->pos.x = proximoX;
-
-            if (IsKeyDown(KEY_UP)) { 
-                proximoY -= jogador->velocidade; 
-                jogador->direcaoAtual = DIRECAO_CIMA;
-                jogador->movendo = true;
-            }
-            else if (IsKeyDown(KEY_DOWN)) { 
-                proximoY += jogador->velocidade; 
-                jogador->direcaoAtual = DIRECAO_BAIXO;
-                jogador->movendo = true;
-            }
-            if (!ChecarColisao(mapa, jogador->pos.x, proximoY)) jogador->pos.y = proximoY;
-
-            if (jogador->movendo) {
-                jogador->tempoFrame += deltaTime;
-                if (jogador->tempoFrame >= 0.12f) {
-                    jogador->tempoFrame = 0.0f;
-                    jogador->frameAtual = (jogador->frameAtual + 1) % FRAMES_JOGADOR;
-                }
-            } else {
-                jogador->frameAtual = 0;
-            }
-
-            if (IsKeyPressed(KEY_SPACE)) {
-                PlantarBomba(jogador);
-            }
-
-            for (int i = 0; i < jogador->maxBombas; i++) {
-                if (jogador->bombas[i].ativa) {
-                    if (!jogador->bombas[i].explodindo) {
-                        jogador->bombas[i].temporizador -= deltaTime;
-
-                        jogador->bombas[i].tempoFrame += deltaTime;
-                        if (jogador->bombas[i].tempoFrame >= 0.15f) {
-                            jogador->bombas[i].tempoFrame = 0.0f;
-                            jogador->bombas[i].frameAtual = (jogador->bombas[i].frameAtual + 1) % FRAMES_BOMBA;
-                        }
-
-                        if (jogador->bombas[i].temporizador <= 0) {
-                            jogador->bombas[i].explodindo = true;
-                            jogador->bombas[i].tempoExplosao = 0.4f;
-                            ProcessarExplosao(mapa, &jogador->bombas[i]);
-                            PlaySound(somExplosao);
-                        }
-                    } else {
-                        jogador->bombas[i].tempoExplosao -= deltaTime;
-
-                        int bx = jogador->bombas[i].pos.x / TAMANHO_BLOCO;
-                        int by = jogador->bombas[i].pos.y / TAMANHO_BLOCO;
-
-                        if (ChecarImpactoJogador(jogador, bx, by)) jogador->vivo = false;
-                        for (int r = 1; r <= jogador->bombas[i].expDireita; r++) if (ChecarImpactoJogador(jogador, bx + r, by)) jogador->vivo = false;
-                        for (int r = 1; r <= jogador->bombas[i].expEsquerda; r++) if (ChecarImpactoJogador(jogador, bx - r, by)) jogador->vivo = false;
-                        for (int r = 1; r <= jogador->bombas[i].expBaixo; r++) if (ChecarImpactoJogador(jogador, bx, by + r)) jogador->vivo = false;
-                        for (int r = 1; r <= jogador->bombas[i].expCima; r++) if (ChecarImpactoJogador(jogador, bx, by - r)) jogador->vivo = false;
-
-                        if (jogador->bombas[i].tempoExplosao <= 0) {
-                            LimparBlocosDestruidos(mapa, &jogador->bombas[i]);
-                            jogador->bombas[i].ativa = false;
-                            jogador->bombas[i].explodindo = false;
-                        }
-                    }
-                }
-            }
-
-            if (!jogador->vivo) {
-                estado = ESTADO_FIM_DE_JOGO;
-                PlaySound(somDerrota);
-            }
-        }
-
-        BeginDrawing();
-        ClearBackground(RAYWHITE);
-
-        if (estado == ESTADO_JOGANDO || estado == ESTADO_FIM_DE_JOGO) {
-            
-            // Desenha os blocos do mapa usando as texturas
-            DesenharMapa(mapa, texParede, texDestrutivel);
-
-            for (int i = 0; i < jogador->maxBombas; i++) {
-                if (jogador->bombas[i].ativa) {
-                    if (!jogador->bombas[i].explodindo) {
-                        DesenharBombaAnimada(&jogador->bombas[i], texturaBomba);
-                    } else {
-                        int bx = jogador->bombas[i].pos.x / TAMANHO_BLOCO;
-                        int by = jogador->bombas[i].pos.y / TAMANHO_BLOCO;
-
-                        DesenharBlocoExplosao(bx, by);
-                        for (int r = 1; r <= jogador->bombas[i].expDireita; r++) DesenharBlocoExplosao(bx + r, by);
-                        for (int r = 1; r <= jogador->bombas[i].expEsquerda; r++) DesenharBlocoExplosao(bx - r, by);
-                        for (int r = 1; r <= jogador->bombas[i].expBaixo; r++)    DesenharBlocoExplosao(bx, by + r);
-                        for (int r = 1; r <= jogador->bombas[i].expCima; r++)     DesenharBlocoExplosao(bx, by - r);
-                    }
-                }
-            }
-
-            if (jogador->vivo) {
-                DesenharJogador(jogador, texJogadorBaixo, texJogadorCima, texJogadorEsquerda, texJogadorDireita);
-            }
-
-            char textoHUD[64];
-            snprintf(textoHUD, sizeof(textoHUD), "Jogador: %s", jogador->nome);
-            DrawRectangle(0, LINHAS_MAPA * TAMANHO_BLOCO, larguraTela, 40, BLACK);
-            DrawText(textoHUD, 10, LINHAS_MAPA * TAMANHO_BLOCO + 12, 16, WHITE);
-            DrawText("Pressione Q para pausar", larguraTela - 220, LINHAS_MAPA * TAMANHO_BLOCO + 12, 16, WHITE);
-        }
-
-        if (estado == ESTADO_FIM_DE_JOGO) {
-            DrawRectangle(0, 0, larguraTela, alturaTela, Fade(RED, 0.4f));
-            DrawText("GAME OVER", larguraTela / 2 - 120, alturaTela / 2 - 35, 40, WHITE);
-        }
-
-        if (pausado && estado == ESTADO_JOGANDO) {
-            DrawText("JOGO PAUSADO", larguraTela / 2 - 135, alturaTela / 2 - 35, 35, WHITE);
-        }
-
-        EndDrawing();
     }
+
+    // 2. Controle de Pausa (Tecla Q)
+    if (IsKeyPressed(KEY_Q) && !em_espera && estado == ESTADO_JOGANDO) {
+        pausado = !pausado;
+    }
+
+    // Controle da Música conforme estado de Pausa
+    if (estado == ESTADO_JOGANDO && !pausado) {
+        ResumeMusicStream(somMusica);
+    } else {
+        PauseMusicStream(somMusica);
+    }
+
+    // 3. Atualização da Lógica do Jogo (Somente se ativo, não pausado e fora do tempo de espera)
+    if (!pausado && !em_espera && estado == ESTADO_JOGANDO && jogador->vivo) {
+        
+        // --- MOVIMENTAÇÃO DO JOGADOR ---
+        float proximoX = jogador->pos.x;
+        float proximoY = jogador->pos.y;
+        jogador->movendo = false;
+
+        if (IsKeyDown(KEY_RIGHT)) { 
+            proximoX += jogador->velocidade; 
+            jogador->direcaoAtual = DIRECAO_DIREITA;
+            jogador->movendo = true;
+        }
+        else if (IsKeyDown(KEY_LEFT)) { 
+            proximoX -= jogador->velocidade; 
+            jogador->direcaoAtual = DIRECAO_ESQUERDA;
+            jogador->movendo = true;
+        }
+        if (!ChecarColisao(mapa, proximoX, jogador->pos.y)) jogador->pos.x = proximoX;
+
+        if (IsKeyDown(KEY_UP)) { 
+            proximoY -= jogador->velocidade; 
+            jogador->direcaoAtual = DIRECAO_CIMA;
+            jogador->movendo = true;
+        }
+        else if (IsKeyDown(KEY_DOWN)) { 
+            proximoY += jogador->velocidade; 
+            jogador->direcaoAtual = DIRECAO_BAIXO;
+            jogador->movendo = true;
+        }
+        if (!ChecarColisao(mapa, jogador->pos.x, proximoY)) jogador->pos.y = proximoY;
+
+        // Animação do jogador
+        if (jogador->movendo) {
+            jogador->tempoFrame += deltaTime;
+            if (jogador->tempoFrame >= 0.12f) {
+                jogador->tempoFrame = 0.0f;
+                jogador->frameAtual = (jogador->frameAtual + 1) % FRAMES_JOGADOR;
+            }
+        } else {
+            jogador->frameAtual = 0;
+        }
+
+        // Plantar Bomba
+        if (IsKeyPressed(KEY_SPACE)) {
+            PlantarBomba(jogador);
+        }
+
+        // --- ATUALIZAÇÃO DAS BOMBAS E EXPLOSÕES ---
+        for (int i = 0; i < jogador->maxBombas; i++) {
+            if (jogador->bombas[i].ativa) {
+                if (!jogador->bombas[i].explodindo) {
+                    jogador->bombas[i].temporizador -= deltaTime;
+
+                    jogador->bombas[i].tempoFrame += deltaTime;
+                    if (jogador->bombas[i].tempoFrame >= 0.15f) {
+                        jogador->bombas[i].tempoFrame = 0.0f;
+                        jogador->bombas[i].frameAtual = (jogador->bombas[i].frameAtual + 1) % FRAMES_BOMBA;
+                    }
+
+                    if (jogador->bombas[i].temporizador <= 0) {
+                        jogador->bombas[i].explodindo = true;
+                        jogador->bombas[i].tempoExplosao = 0.4f;
+                        ProcessarExplosao(mapa, &jogador->bombas[i]);
+                        PlaySound(somExplosao);
+                    }
+                } else {
+                    jogador->bombas[i].tempoExplosao -= deltaTime;
+
+                    int bx = jogador->bombas[i].pos.x / TAMANHO_BLOCO;
+                    int by = jogador->bombas[i].pos.y / TAMANHO_BLOCO;
+
+                    // Checa colisão da explosão com o jogador
+                    if (ChecarImpactoJogador(jogador, bx, by)) jogador->vivo = false;
+                    for (int r = 1; r <= jogador->bombas[i].expDireita; r++) if (ChecarImpactoJogador(jogador, bx + r, by)) jogador->vivo = false;
+                    for (int r = 1; r <= jogador->bombas[i].expEsquerda; r++) if (ChecarImpactoJogador(jogador, bx - r, by)) jogador->vivo = false;
+                    for (int r = 1; r <= jogador->bombas[i].expBaixo; r++) if (ChecarImpactoJogador(jogador, bx, by + r)) jogador->vivo = false;
+                    for (int r = 1; r <= jogador->bombas[i].expCima; r++) if (ChecarImpactoJogador(jogador, bx, by - r)) jogador->vivo = false;
+
+                    if (jogador->bombas[i].tempoExplosao <= 0) {
+                        LimparBlocosDestruidos(mapa, &jogador->bombas[i]);
+                        jogador->bombas[i].ativa = false;
+                        jogador->bombas[i].explodindo = false;
+                    }
+                }
+            }
+        }
+
+        if (!jogador->vivo) {
+            estado = ESTADO_FIM_DE_JOGO;
+            PlaySound(somDerrota);
+        }
+    }
+
+    // --- RENDERIZAÇÃO (DRAWING) ---
+    BeginDrawing();
+    ClearBackground(RAYWHITE);
+
+    if (estado == ESTADO_JOGANDO || estado == ESTADO_FIM_DE_JOGO) {
+        DesenharMapa(mapa, texParede, texDestrutivel);
+
+        for (int i = 0; i < jogador->maxBombas; i++) {
+            if (jogador->bombas[i].ativa) {
+                if (!jogador->bombas[i].explodindo) {
+                    DesenharBombaAnimada(&jogador->bombas[i], texturaBomba);
+                } else {
+                    int bx = jogador->bombas[i].pos.x / TAMANHO_BLOCO;
+                    int by = jogador->bombas[i].pos.y / TAMANHO_BLOCO;
+
+                    DesenharBlocoExplosao(bx, by);
+                    for (int r = 1; r <= jogador->bombas[i].expDireita; r++) DesenharBlocoExplosao(bx + r, by);
+                    for (int r = 1; r <= jogador->bombas[i].expEsquerda; r++) DesenharBlocoExplosao(bx - r, by);
+                    for (int r = 1; r <= jogador->bombas[i].expBaixo; r++)     DesenharBlocoExplosao(bx, by + r);
+                    for (int r = 1; r <= jogador->bombas[i].expCima; r++)      DesenharBlocoExplosao(bx, by - r);
+                }
+            }
+        }
+
+        if (jogador->vivo) {
+            DesenharJogador(jogador, texJogadorBaixo, texJogadorCima, texJogadorEsquerda, texJogadorDireita);
+        }
+
+        // HUD
+        char textoHUD[64];
+        snprintf(textoHUD, sizeof(textoHUD), "Jogador: %s", jogador->nome);
+        DrawRectangle(0, LINHAS_MAPA * TAMANHO_BLOCO, larguraTela, 40, BLACK);
+        DrawText(textoHUD, 10, LINHAS_MAPA * TAMANHO_BLOCO + 12, 16, WHITE);
+        DrawText("Pressione Q para pausar", larguraTela - 220, LINHAS_MAPA * TAMANHO_BLOCO + 12, 16, WHITE);
+    }
+
+    if (estado == ESTADO_FIM_DE_JOGO) {
+        DrawRectangle(0, 0, larguraTela, alturaTela, Fade(RED, 0.4f));
+        DrawText("GAME OVER", larguraTela / 2 - 120, alturaTela / 2 - 35, 40, WHITE);
+    }
+
+    // Tela de Contagem Inicial
+    if (em_espera && estado == ESTADO_JOGANDO) {
+        int segundos = (int)tempo_espera + 1;
+        DrawText(TextFormat("%d", segundos), larguraTela / 2 - 10, alturaTela / 2 - 50, 70, YELLOW);
+    }
+
+    // Overlay de Pause
+    if (pausado && estado == ESTADO_JOGANDO) {
+        DrawRectangle(0, 0, larguraTela, alturaTela, Fade(BLACK, 0.5f));
+        DrawText("JOGO PAUSADO", larguraTela / 2 - 135, alturaTela / 2 - 35, 35, WHITE);
+    }
+
+    EndDrawing();
+}
 
     UnloadTexture(texturaBomba);
     UnloadTexture(texJogadorBaixo);
