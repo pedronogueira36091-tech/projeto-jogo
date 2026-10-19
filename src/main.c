@@ -326,22 +326,20 @@ int main(void) {
     // Carregamento de Sons
     Sound somExplosao = LoadSound(CAMINHO_SOM_EXPLOSAO);
     Sound somDerrota = LoadSound(CAMINHO_SOM_DERROTA);
-    Sound somMusica = LoadSound(CAMINHO_SOM_DE_FUNDO);
+    Music somMusica = LoadMusicStream(CAMINHO_SOM_DE_FUNDO);
 
     EstadoJogo estado = ESTADO_JOGANDO;
     MapaJogo* mapa = CriarMapa(LINHAS_MAPA, COLUNAS_MAPA);
     Jogador* jogador = CriarJogador("Detonador", TAMANHO_BLOCO + 5, TAMANHO_BLOCO + 5);
 
+    PlayMusicStream(somMusica);
     while (!WindowShouldClose()) {
+
+        UpdateMusicStream(somMusica);
         if (estado == ESTADO_JOGANDO && !pausado) {
-            if (!IsSoundPlaying(somMusica)) {
-                PlaySound(somMusica);
-            }
+            ResumeMusicStream(somMusica);
         } else {
-        
-            if (IsSoundPlaying(somMusica)) {
-                StopSound(somMusica); 
-            }
+            PauseMusicStream(somMusica);
         }
         float deltaTime = GetFrameTime();
 
@@ -474,7 +472,7 @@ int main(void) {
 
         if (estado == ESTADO_FIM_DE_JOGO) {
             DrawRectangle(0, 0, larguraTela, alturaTela, Fade(RED, 0.4f));
-            DrawText("GAME OVER", larguraTela / 2 - 135, alturaTela / 2 - 35, 35, WHITE);
+            DrawText("GAME OVER", larguraTela / 2 - 120, alturaTela / 2 - 35, 40, WHITE);
         }
 
         if (pausado && estado == ESTADO_JOGANDO) {
